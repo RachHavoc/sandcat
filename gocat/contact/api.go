@@ -2,6 +2,7 @@ package contact
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -9,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 
 	"github.com/mitre/gocat/output"
 )
@@ -86,11 +89,30 @@ func (a *API) GetPayloadBytes(profile map[string]interface{}, payload string) ([
 //C2RequirementsMet determines if sandcat can use the selected comm channel
 func (a *API) C2RequirementsMet(profile map[string]interface{}, c2Config map[string]string) (bool, map[string]string) {
 	output.VerbosePrint(fmt.Sprintf("Beacon API=%s", API_BEACON))
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	// Set user agent string if provided
 	if providedUserAgent, ok := c2Config["httpUserAgent"]; ok && len(providedUserAgent) > 0 {
 		a.userAgent = providedUserAgent
+	}
+
+	// Build dialer, optionally pinning the local source port.
+	// Requires root/admin for ports < 1024. Note that TCP from port 123 will
+	// look unusual to analysts since NTP uses UDP/123, not TCP.
+	dialer := &net.Dialer{}
+	if sourcePortStr, ok := c2Config["httpSourcePort"]; ok && len(sourcePortStr) > 0 {
+		if sourcePort, err := strconv.Atoi(sourcePortStr); err == nil {
+			dialer.LocalAddr = &net.TCPAddr{Port: sourcePort}
+			output.VerbosePrint(fmt.Sprintf("[*] HTTP contact using fixed source port %d", sourcePort))
+		} else {
+			output.VerbosePrint(fmt.Sprintf("[!] Invalid httpSourcePort value %q, using OS-assigned port", sourcePortStr))
+		}
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
 	}
 
 	// Handle proxy gateway configuration.
@@ -100,10 +122,10 @@ func (a *API) C2RequirementsMet(profile map[string]interface{}, c2Config map[str
 			output.VerbosePrint(fmt.Sprintf("[!] Error - could not establish HTTP proxy requirements: %s", err.Error()))
 			return false, nil
 		}
-		http.DefaultTransport.(*http.Transport).Proxy = http.ProxyURL(proxyUrl)
+		transport.Proxy = http.ProxyURL(proxyUrl)
 	}
-	a.client = &http.Client{Transport: http.DefaultTransport}
 
+	a.client = &http.Client{Transport: transport}
 	return true, nil
 }
 

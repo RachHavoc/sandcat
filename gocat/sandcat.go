@@ -23,6 +23,7 @@ var (
 	c2Key     = ""
 	listenP2P = "false" // need to set as string to allow ldflags -X build-time variable change on server-side.
 	httpProxyGateway = ""
+	httpSourcePort   = "" // leave empty to let the OS pick; set to e.g. "8080" to pin the TCP source port
 	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36"
 )
 
@@ -33,6 +34,7 @@ func main() {
 	}
 	server := flag.String("server", server, "The FQDN of the server")
 	httpProxyUrl :=  flag.String("httpProxyGateway", httpProxyGateway, "URL for the HTTP proxy gateway. For environments that use proxies to reach the internet.")
+	httpSourcePortFlag := flag.String("httpSourcePort", httpSourcePort, "Pin the TCP source port for HTTP C2 traffic (e.g. 8080). Ports below 1024 require root/admin.")
 	paw := flag.String("paw", paw, "Optionally specify a PAW on initialization")
 	group := flag.String("group", group, "Attach a group to this agent")
 	c2Protocol := flag.String("c2", c2Name, "C2 Channel for agent")
@@ -55,10 +57,11 @@ func main() {
 		return
 	}
 	contactConfig := map[string]string{
-		"c2Name": *c2Protocol,
-		"c2Key": c2Key,
+		"c2Name":           *c2Protocol,
+		"c2Key":            c2Key,
 		"httpProxyGateway": *httpProxyUrl,
-		"httpUserAgent": *userAgentFlag,
+		"httpSourcePort":   *httpSourcePortFlag,
+		"httpUserAgent":    *userAgentFlag,
 	}
 	core.Core(trimmedServer, tunnelConfig, *group, *delay, contactConfig, *listenP2P, *verbose, *paw, *originLinkID)
 }
